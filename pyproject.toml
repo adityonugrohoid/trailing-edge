@@ -1,0 +1,162 @@
+[project]
+name = "trailing-edge"
+version = "0.1.0"
+description = "Trailing-edge trading bot for Binance with dynamic stop-loss strategies"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Adityo Nugroho", email = "adityo.nugroho.id@gmail.com" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "websockets>=12.0",
+    "python-dotenv>=1.0.0",
+    "cryptography>=41.0.0",
+    "requests>=2.31.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+]
+
+[project.scripts]
+trailing-edge = "trailingedge.main:main"
+
+[dependency-groups]
+dev = [
+    "mypy",
+    "pre-commit",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "ruff",
+    "matplotlib>=3.7.0",  # For charting/visualization
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ============================================================================
+# Ruff Linting Configuration
+# ============================================================================
+# Fast Python linter with auto-fix capabilities
+# Focus: Catch bugs and enforce modern Python patterns
+
+[tool.ruff]
+# Exclude standard directories from linting
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+    "__pycache__",
+]
+
+line-length = 88
+indent-width = 4
+
+[tool.ruff.lint]
+# Selected rule sets for trading bot quality assurance
+# E4/E7/E9: Import and syntax errors
+# F: Pyflakes (unused imports, undefined names)
+# I: isort (import sorting)
+# N: pep8-naming
+# UP: pyupgrade (modern Python syntax)
+# B: flake8-bugbear (likely bugs)
+# A: flake8-builtins (shadowing builtins)
+# C4: flake8-comprehensions
+# PT: flake8-pytest-style
+# SIM: flake8-simplify
+# ARG: flake8-unused-arguments
+# PTH: flake8-use-pathlib
+select = ["E4", "E7", "E9", "F", "I", "N", "UP", "B", "A", "C4", "PT", "SIM", "ARG", "PTH"]
+
+# Pragmatic ignores for trading bot development
+ignore = [
+    "PTH123",  # Allow open() instead of Path.open() - more readable for config files
+    "N803",    # Allow Binance API naming conventions (clientOrderId, orderId, listenKey, etc)
+    "ARG001",  # Allow unused function arguments - common in test fixtures and callbacks
+    "SIM102",  # Allow nested if statements - sometimes clearer for trading logic conditions
+    "SIM117",  # Allow nested with statements - websocket context managers are clearer nested
+]
+
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+# ============================================================================
+# Pytest Testing Configuration
+# ============================================================================
+# Test framework with coverage reporting and async support
+# Focus: Comprehensive test coverage with clean output
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --cov=trailingedge"
+asyncio_mode = "auto"
+testpaths = [
+    "tests",
+]
+
+# Pragmatic warning filters for external library issues
+filterwarnings = [
+    # Websockets v13.1+ internal deprecation warnings
+    # These are triggered by the library's own backward compatibility layer
+    # Safe to ignore as we use the modern API correctly (Close frames)
+    "ignore:ConnectionClosed.code is deprecated:DeprecationWarning:websockets.exceptions",
+    "ignore:ConnectionClosed.reason is deprecated:DeprecationWarning:websockets.exceptions",
+]
+
+[tool.mypy]
+python_version = "3.10"
+exclude = [".venv"]
+
+# ============================================================================
+# Pragmatic Type Checking Configuration for Trading Bot
+# ============================================================================
+# Balance between type safety and development velocity
+# Focus: Catch real bugs (undefined names, type mismatches) without
+# blocking on optional/return type annotations for internal bot logic
+
+# Strict mode rules - COMMENTED OUT for pragmatic bot development
+# Uncomment these for stricter type checking if needed:
+# disallow_untyped_defs = true      # Require type hints on all functions
+# check_untyped_defs = true         # Type-check untyped functions
+# warn_return_any = true            # Warn when returning Any type
+
+# Active checks
+warn_unused_configs = true          # Catch mypy config errors
+ignore_missing_imports = true       # Allow third-party libs without stubs
+
+# Relaxed error codes for trading bot patterns
+disable_error_code = [
+    "assignment",    # Allow flexible assignments (e.g., Optional[float] = None defaults)
+    "return-value",  # Allow implicit None returns in state update functions
+]
+
+# ============================================================================
+# Module-specific overrides
+# ============================================================================
+
+# Test files: Maximum flexibility for mocking and fixtures
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_errors = true
+disallow_untyped_defs = false
+
+# External library without type stubs
+[[tool.mypy.overrides]]
+module = "requests"
+ignore_missing_imports = true
