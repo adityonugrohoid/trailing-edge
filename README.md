@@ -2,12 +2,23 @@
 
 [![CI](https://github.com/adityonugrohoid/trailing-edge/actions/workflows/ci.yml/badge.svg)](https://github.com/adityonugrohoid/trailing-edge/actions/workflows/ci.yml)
 [![PreCommit](https://img.shields.io/badge/precommit-passing-green)](https://pre-commit.com/)
-[![Pytest](https://img.shields.io/badge/pytest-passing-green)](https://docs.pytest.org/)
-[![Code Quality](https://img.shields.io/badge/code%20quality-pragmatic%20bot%20check-brightgreen)](https://github.com/adityonugrohoid/trailing-edge)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 
 A high-performance asynchronous Python trading bot for Binance, featuring dynamic trailing take-profit strategies, regime detection, Donchian channel gating, and Ed25519 authentication.
+
+![Prod Ready](https://img.shields.io/badge/readiness-prod--ready-green.svg)
+
+## Production Readiness
+
+**Level: Prod Ready**
+
+This system demonstrates production-focused trading architecture with:
+- **Async architecture** using Python asyncio for non-blocking I/O
+- **Systemd deployment** for 24/7 autonomous operation
+- **WebSocket reconciliation** for stateless operation
+- **Ed25519 authentication** for secure, non-expiring credentials
+- **Comprehensive test coverage** ensuring reliability
 
 > **Code Quality**: Pragmatic bot script checks pass - balancing strict type checking with real-time trading requirements
 
@@ -26,6 +37,7 @@ A high-performance asynchronous Python trading bot for Binance, featuring dynami
   - [Running Tests](#running-tests)
 - [Project Structure](#project-structure)
 - [Development](#development)
+- [Notable Code](#notable-code)
 
 ## System Architecture
 
@@ -412,6 +424,15 @@ Trading parameters can be adjusted in `src/trailingedge/config.py`:
 4. Run tests and linting
 5. Submit a pull request
 
+## Notable Code
+
+This repository demonstrates production-focused trading bot architecture. See [NOTABLE_CODE.md](NOTABLE_CODE.md) for detailed code examples highlighting:
+
+- Async architecture with asyncio for non-blocking I/O
+- WebSocket reconciliation for stateless operation
+- Ed25519 authentication implementation
+- Systemd deployment configuration
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
@@ -422,6 +443,7 @@ Trading cryptocurrencies carries significant risk. This bot is provided for educ
 
 ## Author
 
-**Adityo Nugroho**
-- GitHub: https://github.com/adityonugrohoid
+**Adityo Nugroho**  
+- Portfolio: https://adityonugrohoid.github.io  
+- GitHub: https://github.com/adityonugrohoid  
 - LinkedIn: https://www.linkedin.com/in/adityonugrohoid/
