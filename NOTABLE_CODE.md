@@ -1,7 +1,5 @@
 # Notable Code: Trailing Edge Trading Bot
 
-**Production Readiness Level:** Prod Ready
-
 This document highlights key code sections that demonstrate the technical strengths and architectural patterns implemented in this production trading bot.
 
 ## Overview

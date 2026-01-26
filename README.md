@@ -7,19 +7,6 @@
 
 A high-performance asynchronous Python trading bot for Binance, featuring dynamic trailing take-profit strategies, regime detection, Donchian channel gating, and Ed25519 authentication.
 
-![Prod Ready](https://img.shields.io/badge/readiness-prod--ready-green.svg)
-
-## Production Readiness
-
-**Level: Prod Ready**
-
-This system demonstrates production-focused trading architecture with:
-- **Async architecture** using Python asyncio for non-blocking I/O
-- **Systemd deployment** for 24/7 autonomous operation
-- **WebSocket reconciliation** for stateless operation
-- **Ed25519 authentication** for secure, non-expiring credentials
-- **Comprehensive test coverage** ensuring reliability
-
 > **Code Quality**: Pragmatic bot script checks pass - balancing strict type checking with real-time trading requirements
 
 **Topics**: `trading-bot` `binance` `cryptocurrency` `algorithmic-trading` `python` `asyncio` `websocket` `trailing-stop` `donchian-channels` `ed25519` `telegram-bot` `market-making` `quantitative-trading` `technical-indicators` `automated-trading`
