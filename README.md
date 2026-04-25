@@ -1,436 +1,419 @@
-# Trailing Edge Trading Bot
+<div align="center">
+
+# Trailing Edge
 
 [![CI](https://github.com/adityonugrohoid/trailing-edge/actions/workflows/ci.yml/badge.svg)](https://github.com/adityonugrohoid/trailing-edge/actions/workflows/ci.yml)
-[![PreCommit](https://img.shields.io/badge/precommit-passing-green)](https://pre-commit.com/)
-[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![Pre-commit](https://img.shields.io/badge/precommit-passing-green)](https://pre-commit.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/status-active-success.svg)](#)
 
-A high-performance asynchronous Python trading bot for Binance, featuring dynamic trailing take-profit strategies, regime detection, Donchian channel gating, and Ed25519 authentication.
+**Async Binance trading bot — dynamic trailing take-profit, regime detection, Donchian-channel gating, ED25519 auth, systemd-deployed for 24/7 operation, with Telegram alerts.**
 
-> **Code Quality**: Pragmatic bot script checks pass - balancing strict type checking with real-time trading requirements
+[Getting Started](#getting-started) | [Architecture](#architecture) | [Strategy](#strategy) | [Deployment](#deployment) | [Notable Code](#notable-code)
 
-**Topics**: `trading-bot` `binance` `cryptocurrency` `algorithmic-trading` `python` `asyncio` `websocket` `trailing-stop` `donchian-channels` `ed25519` `telegram-bot` `market-making` `quantitative-trading` `technical-indicators` `automated-trading`
+</div>
+
+---
+
+> **Risk disclaimer:** trading cryptocurrencies carries significant risk of loss. This project is provided for educational and research purposes. Use at your own risk — the author accepts no responsibility for financial outcomes.
 
 ## Table of Contents
 
-- [System Architecture](#system-architecture)
-- [Architectural Decisions](#architectural-decisions)
-- [Screenshots](#screenshots)
 - [Features](#features)
-- [Setup](#setup)
+- [Tech Stack](#tech-stack)
+- [Architecture](#architecture)
+- [Demo](#demo)
+- [Strategy](#strategy)
+- [Getting Started](#getting-started)
 - [Usage](#usage)
-  - [Running the Bot](#running-the-bot)
-  - [Production Deployment (Systemd)](#production-deployment-systemd)
-  - [Running Tests](#running-tests)
+- [Deployment](#deployment)
+- [How It Works](#how-it-works)
 - [Project Structure](#project-structure)
-- [Development](#development)
 - [Notable Code](#notable-code)
-
-## System Architecture
-
-```mermaid
-graph TB
-    subgraph "External Systems"
-        BINANCE[Binance WebSocket API]
-        TELEGRAM[Telegram Bot API]
-    end
-
-    subgraph "Bot Core"
-        MAIN[Main Trading Loop]
-        AUTH[Ed25519 Authentication]
-        CONFIG[Configuration Validator]
-        LOGGER[Logging System]
-    end
-
-    subgraph "Market Data Layer"
-        WS_MARKET[Market Stream]
-        WS_ACCOUNT[Account Stream]
-        WS_ORDERS[Order Management]
-        KLINE[Kline Historical Fetch]
-    end
-
-    subgraph "Strategy Components"
-        REGIME[Regime Detection]
-        DONCHIAN[Donchian Channels]
-        TRAILING[Trailing Take-Profit]
-        HARDSTOP[Hard Stop Logic]
-    end
-
-    subgraph "Order Execution"
-        MAKER[Persistent Maker Exit]
-        REPLACE[Order Replace API]
-        JUMPSTART[Jumpstart Balance Init]
-    end
-
-    BINANCE -->|WS Connection| AUTH
-    AUTH -->|Authenticated| MAIN
-    CONFIG -->|Validate| MAIN
-    LOGGER -.->|Log Events| MAIN
-
-    MAIN -->|Subscribe| WS_MARKET
-    MAIN -->|Subscribe| WS_ACCOUNT
-    MAIN -->|Fetch History| KLINE
-
-    WS_MARKET -->|BookTicker| REGIME
-    WS_ACCOUNT -->|Balance Updates| REGIME
-    KLINE -->|Historical Data| DONCHIAN
-
-    REGIME -->|BASE/QUOTE State| TRAILING
-    DONCHIAN -->|Channel Levels| HARDSTOP
-    DONCHIAN -->|Gating Logic| HARDSTOP
-
-    TRAILING -->|Exit Signal| MAKER
-    HARDSTOP -->|Stop Triggered| MAKER
-    MAKER -->|Place Order| REPLACE
-    REPLACE -->|Execute| WS_ORDERS
-    WS_ORDERS -->|Confirm| BINANCE
-
-    JUMPSTART -.->|Initialize| WS_ACCOUNT
-    MAIN -.->|Notifications| TELEGRAM
-
-    style MAIN fill:#4A90E2
-    style REGIME fill:#7ED321
-    style DONCHIAN fill:#F5A623
-    style HARDSTOP fill:#D0021B
-    style MAKER fill:#50E3C2
-```
-
-## Architectural Decisions
-
-This system was engineered for **24/7 autonomous reliability** on low-cost infrastructure. The architecture prioritizes low latency and operational simplicity over microservice complexity.
-
-### 1. Concurrency Model: `asyncio` vs. Threading
-* **Decision:** Built using Python's native `asyncio` event loop rather than multi-threading.
-* **Reasoning:** The workload is heavily I/O bound (waiting for WebSocket frames). Threading introduces Context Switching overhead and Race Conditions. `asyncio` allows us to handle high-frequency Market Data streams and User Data streams concurrently on a single core with sub-100ms reaction time.
-
-### 2. Orchestration: `systemd` vs. Docker
-* **Decision:** Deployed as a native `systemd` service rather than a Docker container.
-* **Reasoning:** For a single-node bot, Docker adds network bridging overhead and complexity in persistence.
-    * **Auto-Restart:** Configured with `Restart=always` to recover instantly from crashes.
-    * **Logging:** Native integration with `journald` allows for centralized log rotation without external agents.
-    * **Resource Management:** `systemd` slices set strict CPU/Memory quotas to prevent the bot from starving the host OS.
-
-### 3. Security: Ed25519 vs. HMAC
-* **Decision:** Implemented Ed25519 asymmetric key authentication.
-* **Reasoning:** HMAC relies on a shared secret; if compromised, it allows full request forgery. Ed25519 uses asymmetric cryptography, signing requests with a private key that never leaves memory while the server verifies with a public key. This eliminates shared-secret risks and enables safer, non-disruptive key rotation for long-running production systems.
-
-### 4. State Management: In-Memory vs. Database
-* **Decision:** Volatile in-memory state with "Fire-and-Forget" updates.
-* **Reasoning:** DB writes introduce latency. The bot is designed to be **stateless on restart** and fully event-driven. Instead of querying REST APIs (which block and hit rate limits), it rebuilds state via **WebSocket Reconciliation**: triggering an immediate push of fresh Account and Order snapshots from the User Data Stream upon connection, ensuring synchronization is instant and purely stream-based.
-
-## Screenshots
-
-### Kline Chart Analysis
-![Strategy Chart](docs/images/klinechart_snapshot.png)
-
-### Live Bot Operation with Systemd and Telegram Alerts
-![Systemd Bot with Telegram Notifications](docs/images/systemd_telegramnotif_snapshot.png)
-
-The bot runs continuously on cloud VPS using systemd for automatic startup, restart on failure, and 24/7 operation. Real-time trade alerts and regime changes are delivered via Telegram.
+- [Architectural Decisions](#architectural-decisions)
+- [Testing](#testing)
+- [Roadmap](#roadmap)
+- [License](#license)
+- [Author](#author)
 
 ## Features
 
-### Core Architecture
+- **Async event loop** — `asyncio` + `websockets` handles market data, account, and order streams concurrently on one core
+- **Dynamic trailing take-profit** — exponential decay from `START_FACTOR` to `MIN_FACTOR`, locks in gains while leaving room for upside
+- **Regime auto-switch** — moves between `BASE` (inventory) and `QUOTE` (cash) modes based on balance state, with all-in compounding
+- **Hard stop with Donchian gating** — channel-based stop with smart re-entry: gate opens only when price crosses mid-channel in the favorable direction
+- **Persistent maker exits** — uses Binance's native `order.replace` to chase best bid/ask with the same `clientOrderId` (no order spam)
+- **Jumpstart balance init** — places deep out-of-market orders to trigger user-data-stream balance snapshots, solving the cold-start problem
+- **WebSocket reconciliation** — stateless operation, rebuilds state from event streams on reconnect; no database needed
+- **ED25519 logon auth** — non-expiring asymmetric signing, no shared secret on the wire
+- **Production deployment** — `systemd` service with auto-restart, journald logging, and resource limits
+- **Telegram alerts** — broadcasts regime flips, fills, and critical events to one or more chats
 
-- **Asynchronous Architecture** — Built on `asyncio` and `websockets` for low-latency market data processing and concurrent stream handling.
+## Tech Stack
 
-- **Secure Authentication** — Uses Ed25519 key pairs for secure, non-expiring API authentication with Binance WebSocket API.
+| Component | Technology |
+|-----------|------------|
+| Language | Python 3.10+ |
+| Runtime | `asyncio` event loop, single core |
+| Package manager | `uv` |
+| WebSocket | `websockets` |
+| Crypto | `cryptography` (ED25519 signing) |
+| Data | `numpy`, `pandas` |
+| Lint / format | `ruff`, `mypy` |
+| Hooks | `pre-commit` |
+| Tests | `pytest`, `pytest-asyncio`, `pytest-cov` |
+| Deployment | `systemd` + `journald` |
+| Notifications | Telegram Bot API |
 
-- **Resilience** — Auto-reconnect logic for WebSocket streams with exponential backoff and configurable retry limits.
+## Architecture
 
-- **Cross-Platform** — Supports both Windows and Linux with native hotkey listener implementation using threading.
+```mermaid
+graph TD
+    subgraph "External"
+        BINANCE["Binance WS API"]
+        TELEGRAM["Telegram Bot API"]
+    end
 
-### Trading Strategies
+    subgraph "Bot Core"
+        MAIN["Main async loop"]
+        AUTH["ED25519 auth"]
+        CFG["Config validator"]
+    end
 
-- **Trailing Take-Profit** — Dynamic callback-based profit-taking with exponential decay from start to min factor. Automatically adjusts profit targets as gains increase, locking in profits while allowing room for continued upside.
+    subgraph "Streams"
+        WSMD["Market stream<br/>BookTicker + Klines"]
+        WSAC["Account stream<br/>balance + orders"]
+        KLINE["Kline historical fetch"]
+    end
 
-- **Regime Detection and Auto-Compounding** — Automatically switches between BASE (inventory holding) and QUOTE (cash holding) modes:
-  - **Fire and Forget**: Balance updates on every change via WebSocket user data stream
-  - **All-In Compounding**: Perfect for bull rallies - reinvests entire portfolio each cycle
-  - **No Pre-Session Balance Required**: Jumpstart orders initialize balance snapshots at startup
+    subgraph "Strategy"
+        REGIME["Regime detector<br/>BASE / QUOTE"]
+        DONCHIAN["Donchian channels"]
+        TRAIL["Trailing TP"]
+        STOP["Hard stop + gate"]
+    end
 
-- **Jumpstart Balance Initialization** — Places deep out-of-market orders (+/- 10% from current price) to trigger Binance's user data stream balance snapshot:
-  - **Solves Cold Start Problem**: User data stream only sends updates on balance changes
-  - **Safe and Non-Intrusive**: Orders immediately cancelled after triggering snapshot
-  - **Session Independence**: No need to manually track balances between restarts
+    subgraph "Execution"
+        MAKER["Persistent maker exit"]
+        REPLACE["order.replace API"]
+        JUMP["Jumpstart init"]
+    end
 
-- **Hard Stop with Donchian Gating** — Intelligent stop-loss system with automatic re-entry gating:
-  - **Volatility-Aware**: Uses Donchian Channels (configurable window) to adapt to market conditions
-  - **Re-Anchor on Stop**: Resets anchor/high values after exit for fresh cycle
-  - **Regime-Specific Behavior**:
-    - BASE: Flushes all inventory to cash (persistent SELL orders at best bid)
-    - QUOTE: Pauses trading and holds cash position
-  - **Smart Re-Entry**: Gate opens only when price crosses mid-channel in favorable direction
-    - After BASE exit: Waits for price to rally above mid-channel
-    - After QUOTE pause: Waits for price to drop below mid-channel
+    BINANCE --> AUTH --> MAIN
+    CFG --> MAIN
+    MAIN --> WSMD
+    MAIN --> WSAC
+    MAIN --> KLINE
+    WSMD --> REGIME
+    WSAC --> REGIME
+    KLINE --> DONCHIAN
+    REGIME --> TRAIL
+    DONCHIAN --> STOP
+    TRAIL --> MAKER
+    STOP --> MAKER
+    MAKER --> REPLACE
+    REPLACE --> BINANCE
+    JUMP --> WSAC
+    MAIN --> TELEGRAM
 
-- **Configurable Min Gain with Fee Support** — Dynamic minimum gain threshold considers multiple factors:
-  - **Static Fraction**: User-configurable minimum profit percentage
-  - **Fee + Buffer**: Adjusts for symbol-specific fee structure (supports 0% maker fees)
-  - **Donchian Multiplier**: Scales with channel width for volatility adaptation
-  - **Takes Maximum**: Uses strictest requirement to ensure profitable trades
+    style MAIN fill:#0f3460,color:#fff
+    style AUTH fill:#533483,color:#fff
+    style CFG fill:#0f3460,color:#fff
+    style WSMD fill:#16213e,color:#fff
+    style WSAC fill:#16213e,color:#fff
+    style KLINE fill:#16213e,color:#fff
+    style REGIME fill:#533483,color:#fff
+    style DONCHIAN fill:#533483,color:#fff
+    style TRAIL fill:#533483,color:#fff
+    style STOP fill:#533483,color:#fff
+    style MAKER fill:#16213e,color:#fff
+    style REPLACE fill:#16213e,color:#fff
+    style JUMP fill:#16213e,color:#fff
+```
 
-- **Persistent Maker Exit with Order Chasing** — Leverages Binance's native `order.replace` API for aggressive price-chasing:
-  - **Post-Only Orders**: Always maker orders (no fees on ETHFDUSD and similar pairs)
-  - **clientOrderId Overwrite**: Replaces same order ID repeatedly, no order spam
-  - **Best Price Tracking**: Updates every loop iteration to chase best bid/ask
-  - **Guaranteed Fill**: Persists until complete fill or manual override
+## Demo
 
-### Technical Indicators
+### Strategy chart
 
-- **Donchian Channels (Active)** — Primary indicator for gating logic and volatility adaptation:
-  - **Price Squeeze Detection**: Reacts immediately to narrowing price ranges (consolidation)
-  - **Breakout Signals**: Triggers on channel breakouts for entry/exit timing
-  - **Dynamic Gating**: Uses mid-channel as support/resistance for re-entry logic
-  - **Better Than ATR For**: Price compression, consolidation phases, and range-bound markets
+![Kline chart with trailing stops and Donchian channels](docs/images/klinechart_snapshot.png)
 
-- **ATR (Average True Range) - Ready Function Only** — Complete implementation available but currently passive:
-  - **Temporal Volatility**: Measures price movement magnitude over time
-  - **Lagging Nature**: Reacts after volatility has occurred, not predictive
-  - **Use Case**: Better suited for position sizing and stop-loss distance calculation
-  - **Why Donchian Preferred**:
-    - ATR only responds to historical volatility (backward-looking)
-    - Donchian reacts instantly to price action and consolidation (forward-looking)
-    - Price squeezes (narrow channels) often precede major moves
-    - Channel breakouts provide clear directional signals
+### Live deployment — systemd + Telegram
 
-  > **Technical Note**: ATR functions (`compute_atr`, `compute_atr_from_rows`, etc.) are fully implemented in `src/trailingedge/indicators/atr.py` and ready for integration if position sizing or adaptive stop-loss logic is needed.
+![systemd service with Telegram notifications](docs/images/systemd_telegramnotif_snapshot.png)
 
-### Operations and Monitoring
+The bot runs unattended on a cloud VPS. `systemd` handles auto-start, restart-on-crash, and resource limits; Telegram surfaces fills, regime flips, and critical errors in real time.
 
-- **Cloud-Hosted 24/7 Operation** — Production-ready systemd service configuration for unattended VPS deployment:
-  - **Auto-Start on Boot**: Service automatically starts after server reboot
-  - **Auto-Restart on Failure**: Configurable restart policy with exponential backoff
-  - **Resource Management**: Memory and CPU limits with systemd cgroups
-  - **Log Aggregation**: Integrated with journald for centralized logging and monitoring
-  - **Service Management**: Standard systemctl commands for start/stop/status control
-  - **Graceful Shutdown**: Proper signal handling for clean termination
+## Strategy
 
-- **Telegram Notifications** — Integrated alerts for regime flips, order execution, and critical events with broadcast support to multiple recipients.
+### 1. Regime detection
 
-- **Comprehensive Logging** — Session-timestamped file logs with configurable levels (console + file). Each bot run creates a new log file for easy session tracking.
+The bot tracks balance state and switches modes:
 
-- **Configuration Validation** — Startup validation ensures all settings are valid before trading. Checks trading pair constraints, fee settings, API credentials, and secret files.
+| State | Hold | Behavior |
+|-------|------|----------|
+| `BASE` | Inventory (e.g. ETH) | Persistent maker SELL — exits to cash on profit target or hard stop |
+| `QUOTE` | Cash (e.g. FDUSD) | Persistent maker BUY — re-enters when channel gate opens |
 
-- **Manual Override** — Hotkey support ('x' + Enter) for operator-triggered exits during runtime without restarting the bot.
+State updates are pushed via the Binance user-data stream — no polling, no DB.
 
-## Setup
+### 2. Trailing take-profit
+
+```python
+# Exponential decay from START_FACTOR to MIN_FACTOR as gain grows
+factor = MIN_FACTOR + (START_FACTOR - MIN_FACTOR) * exp(-decay * gain_pct)
+trailing_stop = peak_price * (1 - factor)
+```
+
+Profit-take widens early and tightens as gains compound — locks in upside while keeping room for continued runs.
+
+### 3. Donchian-gated hard stop
+
+When the trailing stop fires, the bot doesn't immediately re-enter. The Donchian channel acts as a re-entry gate:
+
+- After a `BASE → QUOTE` exit (sold inventory): wait for price to **rise above mid-channel** before re-entering.
+- After a `QUOTE → pause`: wait for price to **fall below mid-channel** before re-entering.
+
+This avoids whipsaw re-entries during the same volatility burst.
+
+### 4. Min-gain logic
+
+The minimum acceptable profit per round-trip is the **strictest** of three constraints:
+
+| Component | Purpose |
+|-----------|---------|
+| Static fraction | User-set floor (e.g. 0.1%) |
+| Fee + buffer | Symbol-specific fee structure (supports 0% maker pairs) |
+| Donchian multiplier | Scales with channel width for volatility |
+
+## Getting Started
 
 ### Prerequisites
 
-- Python 3.10 or higher
-- [uv](https://github.com/astral-sh/uv) (recommended for dependency management)
-- Binance Account with API Keys (Ed25519 keys required)
+- Python 3.10+
+- `uv` — see [install instructions](https://docs.astral.sh/uv/getting-started/installation/)
+- Binance account with **ED25519** API keys (Account → API Management → Edit → ED25519)
+- (Optional) Telegram bot + chat IDs for notifications
 
 ### Installation
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/adityonugrohoid/trailing-edge.git
-   cd trailing-edge
-   ```
-
-2. Sync dependencies:
-   ```bash
-   uv sync
-   ```
-
-3. Setup Environment:
-
-   Copy the example configuration:
-   ```bash
-   cp .env.example .env
-   ```
-
-   Edit `.env` and add your credentials:
-   - `BINANCE_ED25519_API_KEY` - Your Binance API key
-   - `BINANCE_ED25519_PRIV_PATH` - Path to your Ed25519 private key (default: `secrets/ed25519-priv.pem`)
-   - `TELEGRAM_BOT_TOKEN` - Your Telegram bot token
-   - `TELEGRAM_CHAT_ID` - Your personal Telegram chat ID
-   - `TELEGRAM_GROUP_CHAT_ID_1` - (Optional) Group chat ID for notifications
-   - `TELEGRAM_GROUP_CHAT_ID_2` - (Optional) Additional group chat ID
-
-4. Setup Secrets:
-
-   Generate an Ed25519 key pair and place them in the `secrets/` directory:
-   - `secrets/ed25519-priv.pem`
-   - `secrets/ed25519-pub.pem`
-
-   Note: Ensure `secrets/` is ignored by git (it is by default).
-
-## Usage
-
-### Running the Bot
-
-Start the trading bot:
-
 ```bash
-# Using uv
-python -m uv run trailing-edge
-
-# Or directly with python (if venv is active)
-python -m trailingedge.main
-```
-
-The bot will:
-1. Validate configuration
-2. Authenticate to Binance WebSocket API
-3. Fetch historical klines and compute baseline indicators
-4. Subscribe to market and account streams
-5. Initialize balance snapshot with jumpstart orders
-6. Start the main trading loop
-
-Press `Ctrl-C` to stop the bot gracefully.
-
-### Production Deployment (Systemd)
-
-For 24/7 unattended operation on Linux VPS:
-
-1. Create systemd service file:
-   ```bash
-   sudo nano /etc/systemd/system/trailing-edge.service
-   ```
-
-2. Add service configuration:
-   ```ini
-   [Unit]
-   Description=Trailing Edge Trading Bot
-   After=network-online.target
-   Wants=network-online.target
-
-   [Service]
-   Type=simple
-   User=your-username
-   WorkingDirectory=/path/to/trailing-edge
-   Environment="PATH=/home/your-username/.local/bin:/usr/bin:/bin"
-   EnvironmentFile=/path/to/trailing-edge/.env
-   ExecStart=/home/your-username/.local/bin/uv run python -m trailingedge.main
-   Restart=always
-   RestartSec=10
-   StandardOutput=journal
-   StandardError=journal
-
-   [Install]
-   WantedBy=multi-user.target
-   ```
-
-3. Enable and start service:
-   ```bash
-   sudo systemctl daemon-reload
-   sudo systemctl enable trailing-edge.service
-   sudo systemctl start trailing-edge.service
-   ```
-
-4. Monitor bot status:
-   ```bash
-   # Check service status
-   sudo systemctl status trailing-edge.service
-
-   # View live logs
-   sudo journalctl -u trailing-edge.service -f
-
-   # View recent logs
-   sudo journalctl -u trailing-edge.service -n 100
-   ```
-
-### Running Tests
-
-The project includes a comprehensive test suite covering authentication, order logic, and indicators.
-
-```bash
-# Run all tests
-python -m uv run pytest
-
-# Run with coverage report
-python -m uv run pytest --cov=src/trailingedge
-
-# Run specific test file
-python -m uv run pytest tests/test_main_logic.py -v
-```
-
-## Project Structure
-
-```
-src/trailingedge/
-├── auth/              # Ed25519 authentication manager
-│   ├── __init__.py
-│   └── manager.py     # Session authentication and signing
-├── websocket/         # WebSocket streams (Market, Account, Orders)
-│   ├── __init__.py
-│   ├── account.py     # User data stream subscription
-│   ├── account_stream.py  # Balance update processing
-│   ├── market_fetch.py    # Historical kline fetching
-│   ├── market_stream.py   # Real-time market data streams
-│   └── orders.py      # Order placement and management
-├── indicators/        # Technical indicators (ATR, Donchian)
-│   ├── __init__.py
-│   ├── atr.py         # Average True Range calculations
-│   └── donchian.py    # Donchian Channel calculations
-├── notifications/     # Telegram integration
-│   ├── __init__.py
-│   └── telegram.py    # Message sending and broadcasting
-├── config.py          # Trading parameters and constants
-├── config_validator.py    # Startup configuration validation
-├── logging_config.py  # Logging setup and configuration
-└── main.py            # Main entry point and trading loop
-```
-
-## Development
-
-### Code Quality Tools
-
-Linting:
-```bash
-uv run ruff check .
-```
-
-Formatting:
-```bash
-uv run ruff format .
-```
-
-Type Checking:
-```bash
-uv run mypy .
+git clone https://github.com/adityonugrohoid/trailing-edge.git
+cd trailing-edge
+uv sync
 ```
 
 ### Configuration
 
-Trading parameters can be adjusted in `src/trailingedge/config.py`:
-- Trading pair settings (SYMBOL, BASE_ASSET, QUOTE_ASSET)
-- Order constraints (MIN_QTY, MIN_NOTIONAL, LOT_SIZE)
-- Trailing stop parameters (START_FACTOR, MIN_FACTOR)
-- Donchian channel settings (WINDOW, SHIFT, GAIN_MULTIPLIER)
-- Fee and buffer settings
+```bash
+cp .env.example .env
+# Edit .env — see table below
+```
 
-### Contributing
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `BINANCE_ED25519_API_KEY` | Yes | Binance API key (ED25519 type) |
+| `BINANCE_ED25519_PRIV_PATH` | Yes | Path to ED25519 private-key PEM (e.g. `secrets/ed25519-priv.pem`) |
+| `TELEGRAM_BOT_TOKEN` | No | Bot token for notifications |
+| `TELEGRAM_CHAT_ID` | No | Personal chat ID |
+| `TELEGRAM_GROUP_CHAT_ID_1` | No | Optional group broadcast |
+| `TELEGRAM_GROUP_CHAT_ID_2` | No | Optional group broadcast |
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests and linting
-5. Submit a pull request
+Place ED25519 keys in `secrets/` (already gitignored):
+
+```
+secrets/
+├── ed25519-priv.pem
+└── ed25519-pub.pem
+```
+
+Trading parameters live in `src/trailingedge/config.py` — `SYMBOL`, `MIN_QTY`, `LOT_SIZE`, `START_FACTOR`, `MIN_FACTOR`, Donchian `WINDOW`/`SHIFT`/`GAIN_MULTIPLIER`, fee/buffer settings.
+
+## Usage
+
+```bash
+# Run the bot
+uv run trailing-edge
+
+# Stop with Ctrl-C (graceful shutdown)
+# Or hotkey: type 'x' + Enter for operator-triggered exit
+```
+
+On startup the bot:
+
+1. Validates configuration (fail-fast on bad credentials or missing PEM)
+2. Authenticates to Binance WS via ED25519 logon
+3. Fetches historical klines and seeds Donchian baselines
+4. Subscribes to market and account streams
+5. Places jumpstart orders to seed the balance snapshot, then cancels
+6. Enters the main async loop
+
+## Deployment
+
+### systemd (Linux VPS)
+
+```ini
+# /etc/systemd/system/trailing-edge.service
+[Unit]
+Description=Trailing Edge Trading Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=your-username
+WorkingDirectory=/path/to/trailing-edge
+EnvironmentFile=/path/to/trailing-edge/.env
+ExecStart=/home/your-username/.local/bin/uv run python -m trailingedge.main
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now trailing-edge.service
+
+# Live logs
+sudo journalctl -u trailing-edge.service -f
+```
+
+## How It Works
+
+### 1. Async loop, single core
+
+A single `asyncio` event loop handles three concurrent WebSocket streams (market, account, kline) plus the main strategy tick. No threading, no race conditions, sub-100ms reaction time on commodity hardware.
+
+### 2. WebSocket reconciliation, not DB
+
+State (balances, open orders, last fill) is reconstructed entirely from stream events. On reconnect, the bot re-subscribes and Binance pushes a fresh snapshot — no SQL, no migrations, no consistency window.
+
+### 3. Persistent maker exit
+
+When the strategy decides to exit, the bot places a post-only maker order with a stable `clientOrderId`. On every tick where the best bid/ask moves, it issues `order.replace` against the same ID — chases the price aggressively without spawning new orders.
+
+### 4. Jumpstart balance init
+
+Binance's user-data stream only pushes balance updates on *change*. To seed the initial snapshot without a REST call, the bot places a tiny order ±10% from spot, which trips a balance-update event, then immediately cancels.
+
+## Project Structure
+
+```
+trailing-edge/
+├── src/trailingedge/
+│   ├── auth/
+│   │   └── manager.py             # ED25519 logon + signature
+│   ├── websocket/
+│   │   ├── account.py             # User-data subscription
+│   │   ├── account_stream.py      # Balance update parser
+│   │   ├── market_fetch.py        # Historical kline fetch
+│   │   ├── market_stream.py       # BookTicker + Kline streams
+│   │   └── orders.py              # Place / cancel / replace
+│   ├── indicators/
+│   │   ├── donchian.py            # Active — gating + breakout
+│   │   └── atr.py                 # Implemented but currently passive
+│   ├── notifications/
+│   │   └── telegram.py            # Multi-target broadcast
+│   ├── config.py                  # Trading parameters
+│   ├── config_validator.py        # Startup validation
+│   ├── logging_config.py          # Session-timestamped logs
+│   └── main.py                    # Entry point + main async loop
+├── tests/
+│   ├── test_main_logic.py
+│   ├── test_state_transitions.py
+│   ├── test_websocket_reconnection.py
+│   ├── auth/test_manager.py
+│   ├── websocket/test_market_fetch.py, test_orders.py
+│   └── notifications/test_telegram_failures.py
+├── docs/images/                   # Strategy + deployment screenshots
+├── .github/                       # CI workflow
+├── .pre-commit-config.yaml
+├── .env.example
+├── pyproject.toml
+└── NOTABLE_CODE.md
+```
 
 ## Notable Code
 
-This repository demonstrates production-focused trading bot architecture. See [NOTABLE_CODE.md](NOTABLE_CODE.md) for detailed code examples highlighting:
+> See [NOTABLE_CODE.md](NOTABLE_CODE.md) for annotated walk-throughs of the async trading loop, WebSocket reconciliation pattern, ED25519 auth flow, and the systemd deployment configuration.
 
-- Async architecture with asyncio for non-blocking I/O
-- WebSocket reconciliation for stateless operation
-- Ed25519 authentication implementation
-- Systemd deployment configuration
+## Architectural Decisions
+
+### 1. `asyncio` over threading
+
+**Decision:** Single-core async event loop, no thread pool.
+
+**Reasoning:** The workload is I/O-bound (WebSocket frames). Threads add context-switch overhead and race-condition risk. `asyncio` handles three concurrent streams + strategy on one core with sub-100ms reaction time and zero locking.
+
+### 2. `systemd` over Docker
+
+**Decision:** Native systemd unit on VPS, no container.
+
+**Reasoning:** For a single-node bot, Docker adds bridge-networking overhead and a non-trivial persistence story. systemd gives `Restart=always` for crash recovery, native journald log rotation without sidecars, and cgroup-based resource limits — all without an extra runtime.
+
+### 3. ED25519 over HMAC
+
+**Decision:** Asymmetric ED25519 logon, no HMAC-signed REST.
+
+**Reasoning:** No shared secret on the wire; if the API key leaks, the attacker can't forge requests without the private PEM. Rotation is non-disruptive (publish a new public key, swap the PEM). Cost is one extra setup step.
+
+### 4. In-memory state, WebSocket reconciliation
+
+**Decision:** No database, no checkpointing — state lives in memory and rebuilds from streams on reconnect.
+
+**Reasoning:** DB writes add latency and a consistency surface. The Binance user-data stream pushes a fresh snapshot on subscribe, so reconnection *is* the reconciliation. Trade-off: no historical analysis from local data — that's an explicit non-goal.
+
+## Testing
+
+```bash
+uv run pytest                           # All tests
+uv run pytest --cov=trailingedge        # With coverage
+uv run pytest tests/test_main_logic.py -v
+```
+
+| Module | Coverage |
+|--------|----------|
+| `test_main_logic.py` | Trading loop happy path + edge cases |
+| `test_state_transitions.py` | BASE ↔ QUOTE regime switches |
+| `test_websocket_reconnection.py` | Reconnect + reconciliation |
+| `auth/test_manager.py` | ED25519 signing |
+| `websocket/test_market_fetch.py`, `test_orders.py` | Stream parsing, order construction |
+| `notifications/test_telegram_failures.py` | Telegram error handling |
+
+### Code quality
+
+```bash
+uv run ruff check .       # Lint
+uv run ruff format .      # Format
+uv run mypy .             # Type check (pragmatic — see pyproject)
+pre-commit run --all-files
+```
+
+## Roadmap
+
+- [x] Async architecture with concurrent WS streams
+- [x] Trailing take-profit with exponential decay
+- [x] Regime detection + auto-compounding
+- [x] Donchian-gated hard stop
+- [x] Persistent maker exit via `order.replace`
+- [x] Jumpstart balance initialization
+- [x] systemd deployment + Telegram alerts
+- [ ] Activate ATR for adaptive position sizing
+- [ ] Multi-symbol portfolio mode
+- [ ] Optional REST fallback for reconnect storms
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Disclaimer
-
-Trading cryptocurrencies carries significant risk. This bot is provided for educational purposes only. Use at your own risk. The authors are not responsible for any financial losses incurred while using this software.
+MIT — see [LICENSE](LICENSE).
 
 ## Author
 
-**Adityo Nugroho**  
-- Portfolio: https://adityonugrohoid.github.io  
-- GitHub: https://github.com/adityonugrohoid  
-- LinkedIn: https://www.linkedin.com/in/adityonugrohoid/
+**Adityo Nugroho** ([@adityonugrohoid](https://github.com/adityonugrohoid))
+
+- Portfolio: [adityonugrohoid.github.io](https://adityonugrohoid.github.io)
+- LinkedIn: [linkedin.com/in/adityonugrohoid](https://www.linkedin.com/in/adityonugrohoid/)
