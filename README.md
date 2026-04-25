@@ -414,6 +414,3 @@ MIT — see [LICENSE](LICENSE).
 ## Author
 
 **Adityo Nugroho** ([@adityonugrohoid](https://github.com/adityonugrohoid))
-
-- Portfolio: [adityonugrohoid.github.io](https://adityonugrohoid.github.io)
-- LinkedIn: [linkedin.com/in/adityonugrohoid](https://www.linkedin.com/in/adityonugrohoid/)
